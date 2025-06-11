@@ -5,7 +5,7 @@ with open("../README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="mixture-of-agents-with-prompt-optimization",
-    version="0.1.0",
+    version="1.0.0",
     author="Nagy Botond-Vilmos",
     author_email="nagybotond204@gmail.com",
     description="Implementation of Mixture of Agents (MOA) model with iterative prompt optimization for coding problems",
