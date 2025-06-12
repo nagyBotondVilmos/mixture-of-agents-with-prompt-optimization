@@ -143,7 +143,13 @@ class NeuronEvaluator:
             
             for test_idx, test_case in enumerate(self.test_cases):
                 try:
-                    result = run_test(code, test_case["input"], test_case["expected"], text_similarity_comparison)
+                    result = run_test(
+                        code=code,
+                        test_input=test_case["input"],
+                        expected_output=test_case["expected"],
+                        comparison_function=text_similarity_comparison,
+                        dual_metrics=False
+                    )
                     self.test_results[neuron_key][test_idx] = result
                     if result >= SIMILARITY_THRESHOLD:
                         passed_tests += 1

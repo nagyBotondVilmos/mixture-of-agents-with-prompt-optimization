@@ -13,7 +13,7 @@ import sys
 from mymoa.moa import MOA
 from singlellm.single_llm import SingleLLM
 from common.secret import LLM_API_KEY_MOA, LLM_API_URL, LLM_MODEL, SIMILARITY_THRESHOLD
-from common.shared_utils import run_test, generate_test_cases, save_to_json_file, text_similarity_comparison
+from common.shared_utils import run_test, generate_test_cases, save_to_json_file
 
 class ModelComparer:
     """Compares output of MOA and SingleLLM models on coding problems"""
@@ -213,44 +213,64 @@ class ModelComparer:
             parsed = parse_code_output(sllm_output)
             sllm_code = parsed.get("code", "") if parsed else ""
         
-        # Run test cases on both outputs
+        # Run test cases on both outputs using dual metrics
         moa_results = {}
         sllm_results = {}
         
-        moa_passed = 0
-        sllm_passed = 0
+        moa_passed_similarity = 0
+        moa_passed_exact = 0
+        sllm_passed_similarity = 0
+        sllm_passed_exact = 0
         total_tests = len(self.test_cases)
         
         for test_idx, test_case in enumerate(self.test_cases):
-            moa_result = run_test(moa_code, test_case["input"], test_case["expected"], text_similarity_comparison)
+            moa_result = run_test(moa_code, test_case["input"], test_case["expected"], dual_metrics=True)
             moa_results[test_idx] = moa_result
-            if moa_result >= SIMILARITY_THRESHOLD:
-                moa_passed += 1
+            if moa_result['text_similarity'] >= SIMILARITY_THRESHOLD:
+                moa_passed_similarity += 1
+            if moa_result['exact_match'] >= 1.0:
+                moa_passed_exact += 1
                 
-            sllm_result = run_test(sllm_code, test_case["input"], test_case["expected"], text_similarity_comparison)
+            sllm_result = run_test(sllm_code, test_case["input"], test_case["expected"], dual_metrics=True)
             sllm_results[test_idx] = sllm_result
-            if sllm_result >= SIMILARITY_THRESHOLD:
-                sllm_passed += 1
+            if sllm_result['text_similarity'] >= SIMILARITY_THRESHOLD:
+                sllm_passed_similarity += 1
+            if sllm_result['exact_match'] >= 1.0:
+                sllm_passed_exact += 1
         
-        # Calculate scores
-        moa_score = moa_passed / total_tests if total_tests > 0 else 0
-        sllm_score = sllm_passed / total_tests if total_tests > 0 else 0
+        # Calculate scores for both metrics
+        moa_score_similarity = moa_passed_similarity / total_tests if total_tests > 0 else 0
+        moa_score_exact = moa_passed_exact / total_tests if total_tests > 0 else 0
+        sllm_score_similarity = sllm_passed_similarity / total_tests if total_tests > 0 else 0
+        sllm_score_exact = sllm_passed_exact / total_tests if total_tests > 0 else 0
         
         # Create comparison result
         result = {
             "problem": prompt,
             "timestamp": datetime.now().isoformat(),
             "moa": {
-                "score": moa_score,
-                "passed": moa_passed,
+                "scores": {
+                    "text_similarity": moa_score_similarity,
+                    "exact_match": moa_score_exact
+                },
+                "passed": {
+                    "text_similarity": moa_passed_similarity,
+                    "exact_match": moa_passed_exact
+                },
                 "total": total_tests,
                 "time_seconds": moa_time,
                 "code": moa_code,
                 "test_results": moa_results
             },
             "single_llm": {
-                "score": sllm_score,
-                "passed": sllm_passed,
+                "scores": {
+                    "text_similarity": sllm_score_similarity,
+                    "exact_match": sllm_score_exact
+                },
+                "passed": {
+                    "text_similarity": sllm_passed_similarity,
+                    "exact_match": sllm_passed_exact
+                },
                 "total": total_tests,
                 "time_seconds": sllm_time,
                 "code": sllm_code,
@@ -262,8 +282,14 @@ class ModelComparer:
         
         # Print summary
         print("\nEvaluation Results:")
-        print(f"MOA Model: {moa_passed}/{total_tests} tests passed ({moa_score:.2f}) in {moa_time:.2f} seconds")
-        print(f"SingleLLM: {sllm_passed}/{total_tests} tests passed ({sllm_score:.2f}) in {sllm_time:.2f} seconds")
+        print(f"MOA Model:")
+        print(f"  Text Similarity: {moa_passed_similarity}/{total_tests} tests passed ({moa_score_similarity:.2f})")
+        print(f"  Exact Match: {moa_passed_exact}/{total_tests} tests passed ({moa_score_exact:.2f})")
+        print(f"  Time: {moa_time:.2f} seconds")
+        print(f"SingleLLM:")
+        print(f"  Text Similarity: {sllm_passed_similarity}/{total_tests} tests passed ({sllm_score_similarity:.2f})")
+        print(f"  Exact Match: {sllm_passed_exact}/{total_tests} tests passed ({sllm_score_exact:.2f})")
+        print(f"  Time: {sllm_time:.2f} seconds")
         
         return result
     
@@ -281,7 +307,19 @@ async def generate_all_test_cases_concurrently(problems: List[Dict], single_mode
     # Create tasks for all problems
     tasks = []
     for problem in problems:
-        problem_text = problem.get("description", "")
+        # Handle different data structures
+        problem_text = ""
+        if isinstance(problem, dict):
+            problem_text = problem.get("description", "")
+        elif isinstance(problem, list) and len(problem) > 0:
+            # If problem is a list, try to get the first element
+            if isinstance(problem[0], dict):
+                problem_text = problem[0].get("description", "")
+            elif isinstance(problem[0], str):
+                problem_text = problem[0]
+        elif isinstance(problem, str):
+            problem_text = problem
+            
         if problem_text:
             task = ModelComparer.generate_test_cases_for_problem_static(
                 problem_text,
@@ -290,6 +328,8 @@ async def generate_all_test_cases_concurrently(problems: List[Dict], single_mode
                 num_tests
             )
             tasks.append(task)
+        else:
+            print(f"Warning: Could not extract problem text from: {type(problem)}")
     
     # Run all tasks concurrently
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -397,8 +437,18 @@ async def run_comparison(moa_param_file: str, output_file: str, num_problems: in
                 
             if "problems" in problems_data:
                 problems = problems_data["problems"]
+                print(f"Debug: Found 'problems' key, loaded {len(problems)} problems")
+                if problems and len(problems) > 0:
+                    print(f"Debug: First problem type: {type(problems[0])}")
+                    if isinstance(problems[0], dict):
+                        print(f"Debug: First problem keys: {list(problems[0].keys())}")
+                    elif isinstance(problems[0], list):
+                        print(f"Debug: First problem is a list with {len(problems[0])} elements")
+                        if len(problems[0]) > 0:
+                            print(f"Debug: First element type: {type(problems[0][0])}")
             else:
                 problems = [problems_data]  # Assume the file itself is a problem
+                print(f"Debug: No 'problems' key found, treating entire file as single problem")
         except Exception as e:
             print(f"Error loading problems: {str(e)}")
             traceback.print_exc()
@@ -427,8 +477,23 @@ async def run_comparison(moa_param_file: str, output_file: str, num_problems: in
         
         # Process each problem and its test cases
         for i, (problem, test_cases) in enumerate(problem_test_cases, 1):
-            problem_text = problem.get("description", "")
+            # Handle different data structures for problem_text
+            problem_text = ""
+            if isinstance(problem, dict):
+                problem_text = problem.get("description", "")
+            elif isinstance(problem, list) and len(problem) > 0:
+                if isinstance(problem[0], dict):
+                    problem_text = problem[0].get("description", "")
+                elif isinstance(problem[0], str):
+                    problem_text = problem[0]
+            elif isinstance(problem, str):
+                problem_text = problem
+                
             print(f"\n=== Problem {i}/{len(problem_test_cases)} ===")
+            
+            if not problem_text:
+                print(f"Skipping problem {i} with no description")
+                continue
             
             # Set the test cases for this problem
             comparer.test_cases = test_cases
@@ -440,7 +505,19 @@ async def run_comparison(moa_param_file: str, output_file: str, num_problems: in
         # Process problems sequentially (either with pre-generated test cases
         # or generating them one by one)
         for i, problem in enumerate(problems, 1):
-            problem_text = problem.get("description", "")
+            # Handle different data structures
+            problem_text = ""
+            if isinstance(problem, dict):
+                problem_text = problem.get("description", "")
+            elif isinstance(problem, list) and len(problem) > 0:
+                # If problem is a list, try to get the first element
+                if isinstance(problem[0], dict):
+                    problem_text = problem[0].get("description", "")
+                elif isinstance(problem[0], str):
+                    problem_text = problem[0]
+            elif isinstance(problem, str):
+                problem_text = problem
+                
             if not problem_text:
                 print(f"Skipping problem {i} with no description")
                 continue

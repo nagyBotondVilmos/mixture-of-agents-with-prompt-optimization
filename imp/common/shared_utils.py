@@ -48,8 +48,20 @@ def text_similarity_comparison(expected_output: str, actual_output: str) -> floa
     """Compare the expected and actual outputs of a single test case using text similarity"""
     return difflib.SequenceMatcher(None, expected_output, actual_output).ratio()
 
-def run_test(code: str, test_input: str, expected_output: str, comparison_function: Callable[[str, str], float]) -> bool:
-    """Run a single test case on the provided code"""
+def run_test(code: str, test_input: str, expected_output: str, comparison_function: Callable[[str, str], float] = None, dual_metrics: bool = False) -> float | Dict[str, float]:
+    """Run a single test case on the provided code
+    
+    Args:
+        code: The code to test
+        test_input: Input for the test
+        expected_output: Expected output
+        comparison_function: Single comparison function (for backward compatibility)
+        dual_metrics: If True, returns both text similarity and one-on-one comparison
+    
+    Returns:
+        float: Single metric result (when dual_metrics=False)
+        Dict[str, float]: Both metrics (when dual_metrics=True) with keys 'text_similarity' and 'exact_match'
+    """
     temp_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as temp:
@@ -68,14 +80,30 @@ def run_test(code: str, test_input: str, expected_output: str, comparison_functi
             stdout, stderr = process.communicate(input=test_input, timeout=5)
             actual_output = stdout.rstrip()
             expected_output = str(expected_output).rstrip()
-            return comparison_function(expected_output, actual_output)
+            
+            if dual_metrics:
+                # Return both metrics
+                return {
+                    'text_similarity': text_similarity_comparison(expected_output, actual_output),
+                    'exact_match': one_on_one_comparison(expected_output, actual_output)
+                }
+            else:
+                # Return single metric for backward compatibility
+                return comparison_function(expected_output, actual_output)
+                
         except subprocess.TimeoutExpired:
             process.kill()
-            return False
+            if dual_metrics:
+                return {'text_similarity': 0.0, 'exact_match': 0.0}
+            else:
+                return 0.0
     except Exception as e:
         print(f"Error running test: {str(e)}")
         traceback.print_exc()
-        return False
+        if dual_metrics:
+            return {'text_similarity': 0.0, 'exact_match': 0.0}
+        else:
+            return 0.0
     finally:
         # Clean up temp file
         if temp_path:
