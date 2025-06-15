@@ -5,4 +5,4 @@ imp/mixture_of_agents_with_prompt_optimization.egg-info
 results
 test_cases
 training_output
-comparison_results.json
+comparison_results*.json
