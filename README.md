@@ -38,10 +38,14 @@ pip install -e ".[dev]"
 
 Copy `common/secret_example.py` to `common/secret.py` and edit it to include your OpenAI-compatible API keys (OpenAI, DeepSeek, other compatible API providers, etc.):
 
-### 2. Start the API server
+### 2. Start the API server and trainer
 
 ```bash
 python trainer/api.py
+```
+
+```bash
+python trainer/trainer.py -h
 ```
 
 ### 3. Compare models
