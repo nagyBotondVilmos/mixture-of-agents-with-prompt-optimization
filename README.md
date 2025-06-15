@@ -47,14 +47,17 @@ python trainer/api.py
 ### 3. Compare models
 
 ```bash
-python compare_models.py -h
+python comparison/compare_models.py -h
 ```
 
 ### 4. Analyze results
 
 ```bash
-python analyze_results.py -h
+python analysis/analyze_training_results.py -h
 ```
+
+### Note
+Don't use the `analyze_results.py` or `analyze_results_old.py` scripts, they are the old versions of the script.
 
 ## Package Structure
 
